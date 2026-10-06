@@ -1,0 +1,109 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+
+# 1. Lettura rigorosa e diretta dei dati dal file Excel
+try:
+    df = pd.read_excel('bioreactor_design.xlsx', sheet_name='Specifics', skiprows=1, names=['Parameter', 'Value', 'Unit'])
+    df_clean = df.dropna(subset=['Parameter', 'Value']).set_index('Parameter')
+except FileNotFoundError:
+    print("Errore: Il file 'bioreactor_design' non è stato trovato.")
+    exit()
+except Exception as e:
+    print(f"Errore nella lettura del file: {e}")
+    exit()
+
+# 2. Estrazione pura dal file
+N_disks = int(df_clean.loc['N_disks', 'Value'])
+L = float(df_clean.loc['L', 'Value'])                 # Lunghezza totale
+D_v = float(df_clean.loc['D_v', 'Value'])             # Diametro/Larghezza vessel
+t_d = float(df_clean.loc['t_d', 'Value'])             # Spessore disco
+S1 = float(df_clean.loc['S1', 'Value'])               # Distanza primo/ultimo disco dal muro
+D_d = float(df_clean.loc['D_d', 'Value'])             # Diametro disco
+D_s = float(df_clean.loc['D_s', 'Value'])             # Diametro albero (shaft)
+liq_level = float(df_clean.loc['Liquid level', 'Value']) # Livello del liquido
+
+R_v = D_v / 2
+R_d = D_d / 2
+liq_y = -R_v + liq_level                              # Calcolo altezza livello liquido
+
+# 3. Impostazione della figura
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# ==========================================
+# VISTA FRONTALE (Sezione / Colonna Sinistra)
+# ==========================================
+
+# Parte inferiore (Semicilindrica)
+theta = np.linspace(np.pi, 2*np.pi, 100)
+x_semi = R_v * np.cos(theta)
+y_semi = R_v * np.sin(theta)
+ax1.plot(x_semi, y_semi, color='black', lw=2)
+
+# Parte superiore (Rettangolare)
+ax1.plot([-R_v, -R_v], [0, R_v], color='black', lw=2)
+ax1.plot([R_v, R_v], [0, R_v], color='black', lw=2)
+ax1.plot([-R_v, R_v], [R_v, R_v], color='black', lw=2)
+
+# Riempimento liquido dinamico
+if liq_y <= 0:
+    x_liq = np.sqrt(R_v**2 - liq_y**2)
+    x_fill = np.linspace(-x_liq, x_liq, 100)
+    y_fill = -np.sqrt(R_v**2 - x_fill**2)
+    ax1.fill_between(x_fill, y_fill, liq_y, color='lightblue', alpha=0.5)
+else:
+    x_fill = np.linspace(-R_v, R_v, 100)
+    y_fill = -np.sqrt(R_v**2 - x_fill**2)
+    ax1.fill_between(x_fill, y_fill, 0, color='lightblue', alpha=0.5)
+    ax1.fill_between([-R_v, R_v], 0, liq_y, color='lightblue', alpha=0.5)
+
+# Disco e Albero in sezione
+circle_disk = patches.Circle((0, 0), R_d, fill=True, facecolor='orange', alpha=0.5, edgecolor='darkorange')
+ax1.add_patch(circle_disk)
+
+circle_shaft = patches.Circle((0, 0), D_s/2, fill=True, color='gray')
+ax1.add_patch(circle_shaft)
+
+ax1.set_xlim(-R_v - 2, R_v + 2)
+ax1.set_ylim(-R_v - 2, R_v + 2)
+ax1.set_title("Vista Frontale")
+ax1.set_xlabel("Larghezza (cm)")
+ax1.set_ylabel("Altezza (cm)")
+ax1.set_aspect('equal')
+
+# ==========================================
+# VISTA LATERALE (Lunghezza / Colonna Destra)
+# ==========================================
+
+# Contenitore bioreattore (metà cilindrica inferiore, metà rettangolare superiore)
+ax2.add_patch(patches.Rectangle((0, -R_v), L, R_v * 2, fill=False, edgecolor='black', lw=2))
+ax2.axhline(0, color='gray', linestyle='--', lw=0.5)
+
+# Livello del liquido
+ax2.add_patch(patches.Rectangle((0, -R_v), L, liq_level, fill=True, color='lightblue', alpha=0.5))
+
+# Albero centrale
+ax2.add_patch(patches.Rectangle((0, -D_s/2), L, D_s, fill=True, color='gray'))
+
+# Calcolo geometrico della spaziatura
+if N_disks > 1:
+    S_calc = (L - 2*S1 - (N_disks * t_d)) / (N_disks - 1)
+else:
+    S_calc = 0
+
+current_x = S1
+for i in range(N_disks):
+    ax2.add_patch(patches.Rectangle((current_x, -R_d), t_d, D_d, fill=True, facecolor='orange', alpha=0.8, edgecolor='darkorange'))
+    current_x += t_d + S_calc
+
+ax2.set_xlim(-2, L + 2)
+ax2.set_ylim(-R_v - 2, R_v + 2)
+ax2.set_title("Vista Laterale")
+ax2.set_xlabel("Lunghezza (cm)")
+ax2.set_ylabel("Altezza (cm)")
+ax2.set_aspect('equal')
+
+# Rendering finale
+plt.tight_layout()
+plt.show()
