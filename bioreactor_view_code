@@ -1,176 +1,151 @@
-from pathlib import Path
-
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
 
+# Funzione per disegnare quote stile CAD
+def draw_dimension(ax, point1, point2, text, text_offset=(0, 0), text_rot=0):
+    ax.annotate('', xy=point1, xytext=point2, 
+                arrowprops=dict(arrowstyle='<->', color='blue', lw=1.2))
+    mid_x = (point1[0] + point2[0]) / 2 + text_offset[0]
+    mid_y = (point1[1] + point2[1]) / 2 + text_offset[1]
+    ax.text(mid_x, mid_y, text, ha='center', va='center', rotation=text_rot,
+            color='blue', fontsize=9, backgroundcolor='white', zorder=5)
 
-# ------------------------------------------------------------
-# Utility helpers
-# ------------------------------------------------------------
-def read_bioreactor_data(excel_name: str = 'bioreactor_design.xlsx') -> pd.DataFrame:
-    """Read and validate the parameter sheet from the Excel file."""
-    excel_path = Path(__file__).resolve().parent / excel_name
-    if not excel_path.exists():
-        raise FileNotFoundError(f"Il file '{excel_name}' non è stato trovato nella cartella del progetto.")
-
-    df = pd.read_excel(
-        excel_path,
-        sheet_name='Specifics',
-        skiprows=1,
-        names=['Parameter', 'Value', 'Unit'],
-    )
-    df_clean = df.dropna(subset=['Parameter', 'Value']).set_index('Parameter')
-    return df_clean
-
-
-def get_float_value(df: pd.DataFrame, key: str, *, strict: bool = True) -> float:
-    if key not in df.index:
-        raise KeyError(f"Parametro mancante: '{key}'")
-    value = df.loc[key, 'Value']
-    try:
-        return float(value)
-    except (TypeError, ValueError) as e:
-        if strict:
-            raise ValueError(f"Il valore di '{key}' non è numerico: {value!r}") from e
-        return np.nan
-
-
-# ------------------------------------------------------------
-# Read input data
-# ------------------------------------------------------------
+# 1. Lettura rigorosa e diretta dei dati dal file Excel
 try:
-    df_clean = read_bioreactor_data()
-
-    N_disks = int(get_float_value(df_clean, 'N_disks'))
-    L = get_float_value(df_clean, 'L')
-    D_v = get_float_value(df_clean, 'D_v')
-    t_d = get_float_value(df_clean, 't_d')
-    S1 = get_float_value(df_clean, 'S1')
-    D_d = get_float_value(df_clean, 'D_d')
-    D_s = get_float_value(df_clean, 'D_s')
-    liq_level = get_float_value(df_clean, 'Liquid level')
-
-    if N_disks < 1:
-        raise ValueError('N_disks deve essere almeno 1.')
-    if D_v <= 0 or L <= 0 or D_d <= 0 or D_s <= 0:
-        raise ValueError('Tutti i diametri e le lunghezze devono essere > 0.')
-    if liq_level < 0 or liq_level > D_v:
-        raise ValueError('Il livello del liquido deve essere compreso tra 0 e il diametro del reattore.')
-
-except FileNotFoundError as e:
-    print(f"Errore: {e}")
-    raise SystemExit(1)
+    df = pd.read_excel('bioreactor_design.xlsx', sheet_name='Specifics', skiprows=1, names=['Parameter', 'Value', 'Unit'])
+    df_clean = df.dropna(subset=['Parameter', 'Value']).set_index('Parameter')
+except FileNotFoundError:
+    print("Errore: Il file 'bioreactor_design' non è stato trovato.")
+    exit()
 except Exception as e:
-    print(f"Errore nella lettura del file o nei dati: {e}")
-    raise SystemExit(1)
+    print(f"Errore nella lettura del file: {e}")
+    exit()
 
+# 2. Estrazione pura dal file
+N_disks = int(df_clean.loc['N_disks', 'Value'])
+L = float(df_clean.loc['L', 'Value'])                 # Lunghezza totale
+D_v = float(df_clean.loc['D_v', 'Value'])             # Diametro/Larghezza vessel
+t_d = float(df_clean.loc['t_d', 'Value'])             # Spessore disco
+S1 = float(df_clean.loc['S1', 'Value'])               # Distanza primo/ultimo disco dal muro
+D_d = float(df_clean.loc['D_d', 'Value'])             # Diametro disco
+D_s = float(df_clean.loc['D_s', 'Value'])             # Diametro albero (shaft)
+liq_level = float(df_clean.loc['Liquid level', 'Value']) # Livello del liquido
 
-# ------------------------------------------------------------
-# Geometry
-# ------------------------------------------------------------
 R_v = D_v / 2
 R_d = D_d / 2
-liq_y = -R_v + liq_level
+liq_y = -R_v + liq_level                              # Calcolo altezza livello liquido
 
-# Keep spacing non-negative for visual consistency
+# Calcolo geometrico della spaziatura tra i dischi
 if N_disks > 1:
-    S_calc = (L - 2 * S1 - N_disks * t_d) / (N_disks - 1)
-    if S_calc < 0:
-        print('Avviso: la spaziatura calcolata è negativa; verrà mostrata come 0 per il disegno.')
-        S_calc = 0
+    S_calc = (L - 2*S1 - (N_disks * t_d)) / (N_disks - 1)
 else:
     S_calc = 0
 
-
-# ------------------------------------------------------------
-# Figure and axes
-# ------------------------------------------------------------
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+# 3. Impostazione della figura (Stile Blueprint)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+fig.patch.set_facecolor('#f8f9fa') # Sfondo leggermente grigio per staccare
 
 # ==========================================
 # VISTA FRONTALE (Sezione / Colonna Sinistra)
 # ==========================================
+ax1.set_facecolor('#ffffff')
+ax1.grid(color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
 
-# Parte inferiore (semicilindrica)
-theta = np.linspace(np.pi, 2 * np.pi, 200)
+# Parte inferiore (Semicilindrica)
+theta = np.linspace(np.pi, 2*np.pi, 100)
 x_semi = R_v * np.cos(theta)
 y_semi = R_v * np.sin(theta)
-ax1.plot(x_semi, y_semi, color='black', lw=2)
+ax1.plot(x_semi, y_semi, color='black', lw=2, zorder=2)
 
-# Parte superiore (rettangolare)
-ax1.plot([-R_v, -R_v], [0, R_v], color='black', lw=2)
-ax1.plot([R_v, R_v], [0, R_v], color='black', lw=2)
-ax1.plot([-R_v, R_v], [R_v, R_v], color='black', lw=2)
+# Parte superiore (Rettangolare)
+ax1.plot([-R_v, -R_v], [0, R_v], color='black', lw=2, zorder=2)
+ax1.plot([R_v, R_v], [0, R_v], color='black', lw=2, zorder=2)
+ax1.plot([-R_v, R_v], [R_v, R_v], color='black', lw=2, zorder=2)
 
 # Riempimento liquido dinamico
 if liq_y <= 0:
     x_liq = np.sqrt(R_v**2 - liq_y**2)
-    x_fill = np.linspace(-x_liq, x_liq, 200)
+    x_fill = np.linspace(-x_liq, x_liq, 100)
     y_fill = -np.sqrt(R_v**2 - x_fill**2)
-    ax1.fill_between(x_fill, y_fill, liq_y, color='lightblue', alpha=0.6)
+    ax1.fill_between(x_fill, y_fill, liq_y, color='lightblue', alpha=0.5, zorder=1)
 else:
-    x_fill = np.linspace(-R_v, R_v, 200)
+    x_fill = np.linspace(-R_v, R_v, 100)
     y_fill = -np.sqrt(R_v**2 - x_fill**2)
-    ax1.fill_between(x_fill, y_fill, 0, color='lightblue', alpha=0.6)
-    ax1.fill_between([-R_v, R_v], 0, liq_y, color='lightblue', alpha=0.6)
+    ax1.fill_between(x_fill, y_fill, 0, color='lightblue', alpha=0.5, zorder=1)
+    ax1.fill_between([-R_v, R_v], 0, liq_y, color='lightblue', alpha=0.5, zorder=1)
 
-# Disco e albero in sezione
-circle_disk = patches.Circle((0, 0), R_d, fill=True, facecolor='orange', alpha=0.5, edgecolor='darkorange', lw=2)
+# Disco e Albero in sezione
+circle_disk = patches.Circle((0, 0), R_d, fill=True, facecolor='orange', alpha=0.5, edgecolor='darkorange', zorder=3)
 ax1.add_patch(circle_disk)
 
-circle_shaft = patches.Circle((0, 0), D_s / 2, fill=True, color='gray', edgecolor='black', lw=1)
+circle_shaft = patches.Circle((0, 0), D_s/2, fill=True, color='dimgray', zorder=4)
 ax1.add_patch(circle_shaft)
 
-ax1.set_xlim(-R_v - 2, R_v + 2)
-ax1.set_ylim(-R_v - 2, R_v + 2)
-ax1.set_title('Vista Frontale')
-ax1.set_xlabel('Larghezza (cm)')
-ax1.set_ylabel('Altezza (cm)')
+# -- QUOTE VISTA FRONTALE --
+# Diametro Vessel (Esterno superiore)
+draw_dimension(ax1, (-R_v, R_v + 1.5), (R_v, R_v + 1.5), f"D_v = {D_v:.1f} cm")
+# Diametro Disco
+draw_dimension(ax1, (-R_d, -2), (R_d, -2), f"D_d = {D_d:.1f} cm")
+# Livello Liquido (Lato destro)
+draw_dimension(ax1, (R_v + 1.5, -R_v), (R_v + 1.5, liq_y), f"Liq = {liq_level:.1f} cm", text_offset=(1.5, 0), text_rot=90)
+
+ax1.set_xlim(-R_v - 5, R_v + 5)
+ax1.set_ylim(-R_v - 3, R_v + 3)
+ax1.set_title("Vista Frontale (Sezione Trasversale)", fontweight='bold')
+ax1.set_xlabel("Larghezza (cm)")
+ax1.set_ylabel("Altezza (cm)")
 ax1.set_aspect('equal')
-ax1.grid(False)
 
 # ==========================================
 # VISTA LATERALE (Lunghezza / Colonna Destra)
 # ==========================================
+ax2.set_facecolor('#ffffff')
+ax2.grid(color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
 
-# Contenitore bioreattore (metà cilindrica inferiore, metà rettangolare superiore)
-ax2.add_patch(patches.Rectangle((0, -R_v), L, R_v * 2, fill=False, edgecolor='black', lw=2))
-ax2.axhline(0, color='gray', linestyle='--', lw=0.7)
+# Contenitore bioreattore
+ax2.add_patch(patches.Rectangle((0, -R_v), L, R_v * 2, fill=False, edgecolor='black', lw=2, zorder=2))
+ax2.axhline(0, color='gray', linestyle='-.', lw=1, zorder=3) # Asse centrale
 
 # Livello del liquido
-ax2.add_patch(patches.Rectangle((0, -R_v), L, liq_level, fill=True, color='lightblue', alpha=0.6))
+ax2.add_patch(patches.Rectangle((0, -R_v), L, liq_level, fill=True, color='lightblue', alpha=0.5, zorder=1))
 
 # Albero centrale
-ax2.add_patch(patches.Rectangle((0, -D_s / 2), L, D_s, fill=True, color='gray'))
+ax2.add_patch(patches.Rectangle((0, -D_s/2), L, D_s, fill=True, color='dimgray', zorder=4))
 
+# Generazione Dischi
 current_x = S1
-for _ in range(N_disks):
-    ax2.add_patch(
-        patches.Rectangle(
-            (current_x, -R_d),
-            t_d,
-            D_d,
-            fill=True,
-            facecolor='orange',
-            alpha=0.8,
-            edgecolor='darkorange',
-            lw=2,
-        )
-    )
+for i in range(N_disks):
+    ax2.add_patch(patches.Rectangle((current_x, -R_d), t_d, D_d, fill=True, facecolor='orange', alpha=0.8, edgecolor='darkorange', zorder=5))
     current_x += t_d + S_calc
 
+# -- QUOTE VISTA LATERALE --
+# Lunghezza Totale
+draw_dimension(ax2, (0, R_v + 1.5), (L, R_v + 1.5), f"L = {L:.1f} cm")
+
+# Distanza Muro-Disco (S1) - Quota mantenuta a -1.5
+if S1 > 0:
+    draw_dimension(ax2, (0, -R_v - 1.5), (S1, -R_v - 1.5), f"S1={S1:.1f}")
+
+# Spaziatura tra dischi (S_calc) - Quota abbassata a -3.0 per non sovrapporsi
+if N_disks > 1:
+    x_space_start = S1 + t_d
+    x_space_end = x_space_start + S_calc
+    draw_dimension(ax2, (x_space_start, -R_v - 3.0), (x_space_end, -R_v - 3.0), f"S={S_calc:.2f} cm")
+
+# -- NUMERO DI DISCHI (Testo in alto a sinistra) --
+ax2.text(0.0, 1.0, f"Numero di dischi: {N_disks}", transform=ax2.transAxes,
+         fontsize=11, fontweight='bold', color='black',
+         bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5', alpha=0.9),
+         verticalalignment='top', zorder=10)
+
 ax2.set_xlim(-2, L + 2)
-ax2.set_ylim(-R_v - 2, R_v + 2)
-ax2.set_title('Vista Laterale')
-ax2.set_xlabel('Lunghezza (cm)')
-ax2.set_ylabel('Altezza (cm)')
+ax2.set_ylim(-R_v - 4.5, R_v + 4.5)
+ax2.set_title("Vista Laterale (Sezione Longitudinale)", fontweight='bold')
+ax2.set_xlabel("Lunghezza (cm)")
 ax2.set_aspect('equal')
-ax2.grid(False)
 
 # Rendering finale
 plt.tight_layout()
-# Optional: save the figure for export
-# plt.savefig('bioreactor_design.png', dpi=300, bbox_inches='tight')
 plt.show()
